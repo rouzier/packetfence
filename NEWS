@@ -15,6 +15,10 @@ For a list of compatibility related changes see the UPGRADE file.
 --------------------------------------------------------------------------------
 Version <stableRelease> released on <releaseDate>
 
+New Features
+ * Adding routing support for the inline mode
+ * Adding support to choose multiples DNAT interfaces for inline mode
+
 Bug Fixes
  * FreeRADIUS watchdog updated for 3.5.0 changes (#1514)
  * debian packages improvements regarding FreeRADIUS configuration

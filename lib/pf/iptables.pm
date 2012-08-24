@@ -51,6 +51,7 @@ Readonly my $FW_FILTER_INPUT_INT_HA => 'input-highavailability-if';
 Readonly my $FW_FILTER_FORWARD_INT_INLINE => 'forward-internal-inline-if';
 Readonly my $FW_PREROUTING_INT_INLINE => 'prerouting-int-inline-if';
 Readonly my $FW_POSTROUTING_INT_INLINE => 'postrouting-int-inline-if';
+Readonly my $FW_POSTROUTING_INT_INLINE_NONAT => 'postrouting-int-inline-nonat';
 
 =head1 SUBROUTINES
 
@@ -61,16 +62,15 @@ TODO: This list is incomplete
 =cut
 sub iptables_generate {
     my $logger = Log::Log4perl::get_logger('pf::iptables');
-
     my %tags = ( 
         'filter_if_src_to_chain' => '', 'filter_forward_inline' => '', 
         'mangle_if_src_to_chain' => '', 'mangle_prerouting_inline' => '', 
-        'nat_if_src_to_chain' => '', 'nat_prerouting_inline' => '', 'nat_postrouting_inline' => '' 
+        'nat_if_src_to_chain' => '', 'nat_prerouting_inline' => '',
+        'nat_postrouting_inline' => '', 'nonat_postrouting_inline' => ''
     );
 
     # global substitution variables
     $tags{'web_admin_port'} = $Config{'ports'}{'admin'};
-
     # FILTER
     # per interface-type pointers to pre-defined chains
     $tags{'filter_if_src_to_chain'} .= generate_filter_if_src_to_chain();
@@ -78,7 +78,7 @@ sub iptables_generate {
     if (is_inline_enforcement_enabled()) {
         # Note: I'm giving references to this guy here so he can directly mess with the tables
         generate_inline_rules(
-            \$tags{'filter_forward_inline'}, \$tags{'nat_prerouting_inline'}, \$tags{'nat_postrouting_inline'}
+            \$tags{'filter_forward_inline'}, \$tags{'nat_prerouting_inline'}, \$tags{'nat_postrouting_inline'},\$tags{'nonat_postrouting_inline'}
         );
     
         # MANGLE
@@ -160,7 +160,35 @@ sub generate_filter_if_src_to_chain {
 
     # Allow the NAT back inside through the forwarding table if inline is enabled
     if (is_inline_enforcement_enabled()) {
-        $rules .= "-A FORWARD --in-interface $mgmt_int --match state --state ESTABLISHED,RELATED --jump ACCEPT\n";
+        if (defined ($Config{'inline'}{'interfaceSNAT'})) {
+            my @values = split(',', $Config{'inline'}{'interfaceSNAT'});
+            foreach my $val (@values) {
+                foreach my $network ( keys %ConfigNetworks ) {
+                    next if ( !pf::config::is_network_type_inline($network) );
+                    my $inline_obj = new Net::Netmask( $network, $ConfigNetworks{$network}{'netmask'} );
+                    my $NAT = $ConfigNetworks{$network}{'nat'};
+                    if (defined ($NAT) && ($NAT eq $NO)) {
+                        $rules .= "-A FORWARD -d $network/$inline_obj->{BITS} --in-interface $val ";
+                        $rules .= "--jump ACCEPT";
+                        $rules .= "\n";
+                    }
+                }
+                $rules .= "-A FORWARD --in-interface $val --match state --state ESTABLISHED,RELATED --jump ACCEPT\n";
+            }
+        }
+        else {
+            foreach my $network ( keys %ConfigNetworks ) {
+                next if ( !pf::config::is_network_type_inline($network) );
+                my $inline_obj = new Net::Netmask( $network, $ConfigNetworks{$network}{'netmask'} );
+                my $NAT = $ConfigNetworks{$network}{'nat'};
+                if (defined ($NAT) && ($NAT eq $NO)) {
+                    $rules .= "-A FORWARD -d $network/$inline_obj->{BITS} --in-interface $mgmt_int ";
+                    $rules .= "--jump ACCEPT";
+                    $rules .= "\n";
+                }
+            }
+            $rules .= "-A FORWARD --in-interface $mgmt_int --match state --state ESTABLISHED,RELATED --jump ACCEPT\n";
+        }
     }
 
     return $rules;
@@ -173,7 +201,7 @@ Handling both FILTER and NAT tables at the same time.
 
 =cut
 sub generate_inline_rules {
-    my ($filter_rules_ref, $nat_prerouting_ref, $nat_postrouting_ref) = @_;
+    my ($filter_rules_ref, $nat_prerouting_ref, $nat_postrouting_ref, $nonat_postrouting_inline) = @_;
     my $logger = Log::Log4perl::get_logger('pf::iptables');
 
     $logger->info("Adding DNS DNAT rules for unregistered and isolated inline clients.");
@@ -191,6 +219,8 @@ sub generate_inline_rules {
     $logger->info("Adding NAT Masquarade statement (PAT)");
     $$nat_postrouting_ref .= "-A $FW_POSTROUTING_INT_INLINE --jump MASQUERADE\n";
     
+    $logger->info("Addind NONAT statement");
+    $$nonat_postrouting_inline .= "-A $FW_POSTROUTING_INT_INLINE_NONAT --jump ACCEPT\n";
 
     $logger->info("building firewall to accept registered users through inline interface");
     $$filter_rules_ref .= "-A $FW_FILTER_FORWARD_INT_INLINE --match mark --mark 0x$IPTABLES_MARK_REG --jump ACCEPT\n";
@@ -234,10 +264,45 @@ sub generate_inline_if_src_to_chain {
         # Every marked packet should be NATed 
         # Note that here we don't wonder if they should be allowed or not. This is a filtering step done in FORWARD.
         foreach ($IPTABLES_MARK_UNREG, $IPTABLES_MARK_REG, $IPTABLES_MARK_ISOLATION) {
-            $rules .= "-A POSTROUTING --out-interface $mgmt_int ";
-            $rules .= "--match mark --mark 0x$_ ";
-            $rules .= "--jump $FW_POSTROUTING_INT_INLINE";
-            $rules .= "\n";
+            if (defined ($Config{'inline'}{'interfaceSNAT'})) {
+                my @values = split(',', $Config{'inline'}{'interfaceSNAT'});
+                foreach my $val (@values) {
+                    foreach my $network ( keys %ConfigNetworks ) {
+                        next if ( !pf::config::is_network_type_inline($network) );
+                        my $inline_obj = new Net::Netmask( $network, $ConfigNetworks{$network}{'netmask'} );
+                        my $NAT = $ConfigNetworks{$network}{'nat'};
+                        if (defined ($NAT) && ($NAT eq $NO)) {
+                            $rules .= "-A POSTROUTING -s $network/$inline_obj->{BITS} --out-interface $val ";
+                            $rules .= "--match mark --mark 0x$_ ";
+                            $rules .= "--jump $FW_POSTROUTING_INT_INLINE_NONAT";
+                            $rules .= "\n";
+                        }
+ 
+                    }
+
+                    $rules .= "-A POSTROUTING --out-interface $val ";
+                    $rules .= "--match mark --mark 0x$_ ";
+                    $rules .= "--jump $FW_POSTROUTING_INT_INLINE";
+                    $rules .= "\n";
+                }
+            }
+            else {
+                foreach my $network ( keys %ConfigNetworks ) {
+                    next if ( !pf::config::is_network_type_inline($network) );
+                    my $inline_obj = new Net::Netmask( $network, $ConfigNetworks{$network}{'netmask'} );
+                    my $NAT = $ConfigNetworks{$network}{'nat'};
+                    if (defined ($NAT) && ($NAT eq $NO)) {
+                        $rules .= "-A POSTROUTING -s $network/$inline_obj->{BITS} --out-interface $mgmt_int ";
+                        $rules .= "--match mark --mark 0x$_ ";
+                        $rules .= "--jump $FW_POSTROUTING_INT_INLINE_NONAT";
+                        $rules .= "\n";
+                    }
+                }
+                $rules .= "-A POSTROUTING --out-interface $mgmt_int ";
+                $rules .= "--match mark --mark 0x$_ ";
+                $rules .= "--jump $FW_POSTROUTING_INT_INLINE";
+                $rules .= "\n";
+            }
         }
     }
 
@@ -277,8 +342,8 @@ sub generate_mangle_rules {
     if ( $macarray[0] ) {
         foreach my $row (@macarray) {
             my $mac = $row->{'mac'};
-            $mangle_rules .= 
-                "-A $FW_PREROUTING_INT_INLINE --match mac --mac-source $mac " . 
+            $mangle_rules .=
+                "-A $FW_PREROUTING_INT_INLINE --match mac --mac-source $mac " .
                 "--jump MARK --set-mark 0x$IPTABLES_MARK_ISOLATION\n"
             ;
         }
@@ -339,7 +404,7 @@ sub iptables_mark_node {
 
     $logger->debug("marking node $mac with mark 0x$mark");
     my $success = $iptables->iptables_do_command(
-        "-A $FW_PREROUTING_INT_INLINE",  "--match mac --mac-source $mac", "--jump MARK --set-mark 0x$mark"
+         "-A $FW_PREROUTING_INT_INLINE",  "--match mac --mac-source $mac", "--jump MARK --set-mark 0x$mark"
     );
 
     if (!$success) {
@@ -632,6 +697,8 @@ David LaPorte <david@davidlaporte.org>
 
 Kevin Amorin <kev@amorin.org>
 
+Fabrice Durand <fdurand@inverse.ca>
+
 =head1 COPYRIGHT
 
 Copyright (C) 2005 David LaPorte
@@ -660,3 +727,4 @@ USA.
 =cut
 
 1;
+
