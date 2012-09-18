@@ -51,7 +51,7 @@ Readonly my $FW_FILTER_INPUT_INT_HA => 'input-highavailability-if';
 Readonly my $FW_FILTER_FORWARD_INT_INLINE => 'forward-internal-inline-if';
 Readonly my $FW_PREROUTING_INT_INLINE => 'prerouting-int-inline-if';
 Readonly my $FW_POSTROUTING_INT_INLINE => 'postrouting-int-inline-if';
-Readonly my $FW_POSTROUTING_INT_INLINE_NONAT => 'postrouting-int-inline-nonat';
+Readonly my $FW_POSTROUTING_INT_INLINE_ROUTED => 'postrouting-int-inline-routed';
 
 =head1 SUBROUTINES
 
@@ -204,8 +204,8 @@ sub generate_inline_rules {
     $logger->info("Adding NAT Masquarade statement (PAT)");
     $$nat_postrouting_ref .= "-A $FW_POSTROUTING_INT_INLINE --jump MASQUERADE\n";
     
-    $logger->info("Addind NONAT statement");
-    $$nonat_postrouting_inline .= "-A $FW_POSTROUTING_INT_INLINE_NONAT --jump ACCEPT\n";
+    $logger->info("Addind ROUTED statement");
+    $$nonat_postrouting_inline .= "-A $FW_POSTROUTING_INT_INLINE_ROUTED --jump ACCEPT\n";
 
     $logger->info("building firewall to accept registered users through inline interface");
     $$filter_rules_ref .= "-A $FW_FILTER_FORWARD_INT_INLINE --match mark --mark 0x$IPTABLES_MARK_REG --jump ACCEPT\n";
@@ -254,11 +254,11 @@ sub generate_inline_if_src_to_chain {
                 foreach my $network ( keys %ConfigNetworks ) {
                     next if ( !pf::config::is_network_type_inline($network) );
                     my $inline_obj = new Net::Netmask( $network, $ConfigNetworks{$network}{'netmask'} );
-                    my $NAT = $ConfigNetworks{$network}{'nat'};
-                    if (defined ($NAT) && ($NAT eq $NO)) {
+                    my $nat = $ConfigNetworks{$network}{'nat'};
+                    if (defined ($nat) && ($nat eq $NO)) {
                         $rules .= "-A POSTROUTING -s $network/$inline_obj->{BITS} --out-interface $val ";
                         $rules .= "--match mark --mark 0x$_ ";
-                        $rules .= "--jump $FW_POSTROUTING_INT_INLINE_NONAT";
+                        $rules .= "--jump $FW_POSTROUTING_INT_INLINE_ROUTED";
                         $rules .= "\n";
                     }
 
@@ -370,7 +370,7 @@ sub iptables_mark_node {
 
     $logger->debug("marking node $mac with mark 0x$mark");
     my $success = $iptables->iptables_do_command(
-         "-A $FW_PREROUTING_INT_INLINE",  "--match mac --mac-source $mac", "--jump MARK --set-mark 0x$mark"
+        "-A $FW_PREROUTING_INT_INLINE",  "--match mac --mac-source $mac", "--jump MARK --set-mark 0x$mark"
     );
 
     if (!$success) {
@@ -659,7 +659,7 @@ Return the list of network interface to enable SNAT.
 =cut
 sub get_snat_interface {
     my ($self) = @_;
-    my $logger = Log::Log4perl::get_logger('pf::iptables');
+    my $logger = Log::Log4perl::get_logger(__PACKAGE__);
     if (defined ($Config{'inline'}{'interfaceSNAT'})) {
         return $Config{'inline'}{'interfaceSNAT'};
     } else {
