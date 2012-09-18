@@ -66,7 +66,7 @@ sub iptables_generate {
         'filter_if_src_to_chain' => '', 'filter_forward_inline' => '', 
         'mangle_if_src_to_chain' => '', 'mangle_prerouting_inline' => '', 
         'nat_if_src_to_chain' => '', 'nat_prerouting_inline' => '',
-        'nat_postrouting_inline' => '', 'nonat_postrouting_inline' => ''
+        'nat_postrouting_inline' => '', 'routed_postrouting_inline' => ''
     );
 
     # global substitution variables
@@ -78,7 +78,7 @@ sub iptables_generate {
     if (is_inline_enforcement_enabled()) {
         # Note: I'm giving references to this guy here so he can directly mess with the tables
         generate_inline_rules(
-            \$tags{'filter_forward_inline'}, \$tags{'nat_prerouting_inline'}, \$tags{'nat_postrouting_inline'},\$tags{'nonat_postrouting_inline'}
+            \$tags{'filter_forward_inline'}, \$tags{'nat_prerouting_inline'}, \$tags{'nat_postrouting_inline'},\$tags{'routed_postrouting_inline'}
         );
     
         # MANGLE
@@ -186,7 +186,7 @@ Handling both FILTER and NAT tables at the same time.
 
 =cut
 sub generate_inline_rules {
-    my ($filter_rules_ref, $nat_prerouting_ref, $nat_postrouting_ref, $nonat_postrouting_inline) = @_;
+    my ($filter_rules_ref, $nat_prerouting_ref, $nat_postrouting_ref, $routed_postrouting_inline) = @_;
     my $logger = Log::Log4perl::get_logger('pf::iptables');
 
     $logger->info("Adding DNS DNAT rules for unregistered and isolated inline clients.");
@@ -205,7 +205,7 @@ sub generate_inline_rules {
     $$nat_postrouting_ref .= "-A $FW_POSTROUTING_INT_INLINE --jump MASQUERADE\n";
     
     $logger->info("Addind ROUTED statement");
-    $$nonat_postrouting_inline .= "-A $FW_POSTROUTING_INT_INLINE_ROUTED --jump ACCEPT\n";
+    $$routed_postrouting_inline .= "-A $FW_POSTROUTING_INT_INLINE_ROUTED --jump ACCEPT\n";
 
     $logger->info("building firewall to accept registered users through inline interface");
     $$filter_rules_ref .= "-A $FW_FILTER_FORWARD_INT_INLINE --match mark --mark 0x$IPTABLES_MARK_REG --jump ACCEPT\n";
