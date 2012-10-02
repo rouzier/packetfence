@@ -182,6 +182,7 @@ sub generate_registration_page {
     $vars->{'phone'} = $cgi->param("phone");
     $vars->{'email'} = lc($cgi->param("email"));
     $vars->{'address'} = $cgi->param("address");
+    $vars->{'category'} = $cgi->param("category");
     $vars->{'arrival_date'} = $cgi->param("arrival_date") || POSIX::strftime("%Y-%m-%d", localtime(time));
     $vars->{'notes'} = $cgi->param("notes");
 
@@ -402,6 +403,7 @@ sub validate_registration {
     $session->param("email", lc($cgi->param("email"))); 
     $session->param("phone", $cgi->param("phone"));
     $session->param("address", $cgi->param("address"));
+    $session->param("category", $cgi->param("category"));
     $session->param("arrival_date", $cgi->param("arrival_date"));
     $session->param("access_duration", $cgi->param("access_duration"));
     $session->param("notes", $cgi->param("notes"));
@@ -672,7 +674,7 @@ sub preregister {
     # we create temporary password with the expiration and a 'not valid before' value
     my $password = pf::temporary_password::generate(
         $pid, $expiration, $session->param("arrival_date"), 
-        valid_access_duration($session->param("access_duration"))
+        valid_access_duration($session->param("access_duration")),$session->param("category")
     );
 
     # failure, redirect to error page
@@ -719,7 +721,7 @@ sub preregister_multiple {
         my $password = pf::temporary_password::generate($pid,
                                                         $expiration,
                                                         $session->param("arrival_date"), 
-                                                        valid_access_duration($session->param("access_duration")));
+                                                        valid_access_duration($session->param("access_duration"),$session->param("category")));
         if ($password) {
           $users{$pid} = $password;
           $count++;
