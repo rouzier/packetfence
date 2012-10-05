@@ -147,8 +147,17 @@ case "$1" in
 		;;
 	esac
 	;;
+  condrestart)
+        if [ -f /usr/local/pf/var/run/pfmon.pid ]; then
+            restart
+        else
+            if [ -f /usr/local/pf/var/run/pfsetvlan.pid ]; then
+                restart
+            fi
+	fi
+        ;;
   *)
-	echo "Usage: $SCRIPTNAME {start|stop|status|restart|force-reload}" >&2
+	echo "Usage: $SCRIPTNAME {start|stop|status|restart|force-reload|condrestart}" >&2
 	exit 3
 	;;
 esac
