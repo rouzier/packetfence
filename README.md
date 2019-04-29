@@ -1,5 +1,6 @@
 ## What is PacketFence?
 
+
 PacketFence is a fully supported, trusted, Free and Open Source
 network access control (NAC) system. Boasting an impressive feature
 set including a captive-portal for registration and remediation,
@@ -87,6 +88,8 @@ Licensed under the GNU General Public License v2.
 ---
 
 [Inverse inc.](https://inverse.ca/) leads the development of the solution. Over the years, numerous people and organizations have contributed to the project and we would like to thank them all !
+
+
 
 
 
